@@ -1,0 +1,16 @@
+# 平台规范要求（systemreadme.md 四）
+logs/
+node_modules/
+.DS_Store
+__pycache__/
+*.log
+.env
+uploads/
+dist/
+build/
+
+# 运行时产物
+tmp.png
+*.pyc
+.sessions/
+sessions/

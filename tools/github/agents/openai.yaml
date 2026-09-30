@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Operator"
+  short_description: "Git and GitHub CLI workflows"
+  default_prompt: "Use $github to inspect this repository, manage branches, and work with GitHub via git and gh."
