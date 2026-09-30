@@ -1,4 +1,3 @@
-# 平台规范要求（systemreadme.md 四）
 logs/
 node_modules/
 .DS_Store
@@ -8,9 +7,7 @@ __pycache__/
 uploads/
 dist/
 build/
-
-# 运行时产物
-tmp.png
-*.pyc
-.sessions/
+data/
 sessions/
+tmp.png
+/tmp/webapp.pid

@@ -1,0 +1,23 @@
+30c5be8 fix: PDF 每段文字异常换行（孤字独立成行）— 改为标点感知换行 + 逐行渲染
+f498bce fix: PDF 每段图文强制同一页，不允许文本图片分两页
+3fdec44 feat: PDF 分页布局 - 标题+首段合一，后续每段文本/图片各占一页
+b2bf06f fix: PDF 导出从 chromium 切换到 pdfkit，修复下载成 .txt 的问题
+1070c3c fix: 移除 chromium 默认 PDF 页脚 (URL/页码/日期)
+8589ed8 feat: 文字在上默认版式 + 库卡片导出 PDF
+cf08b49 feat: 库卡片"继续编辑"入口
+9b02e0a docs: 记录 Turn C（完成跳库页）+ 更新 SKILL「最后 3 轮」摘要
+fb58d02 fix: 裁剪图片与 ROI 对齐
+0bdd6db feat: 支持进度预览拖动排序段落
+2137f44 fix: download returns self-contained zip bundle
+0ae842f fix: 向导完成生成 v1 后跳转到库页面（而非 viewer）
+ba13965 docs: 重写 README/SKILL 反映 v1 模板/v2+ AI 设计
+f17d22b refactor: v1 always uses template, AI reserved for v2+ feedback
+5e00c08 fix: finalize now saves v1 reliably + version bump preserves history
+22854c0 chore: append commit.txt with new commit id
+b4de338 chore: append commit.txt with new commit id
+a3f9d0c fix: finalize 在 claude 超时时不再丢失 HTML；增加模板生成器与库卡片下载入口
+1d9bef8 refactor(wizard): 改造为单标题+多段落循环+缩略图进度条
+e36e328a3b5c30b44399c4e83f50e54a4a5d647b feat: 图文HTML生成器 - 向导模式 + 库管理 + 版本迭代 + 下载
+4552bf3 chore: 整理 sessions 跟踪 + 添加 commit.txt + 微调样式
+e36e328 feat: 图文HTML生成器 - 向导模式 + 库管理 + 版本迭代 + 下载
+ac860f5 chore: append commit.txt with new commit id

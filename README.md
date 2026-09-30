@@ -1,155 +1,186 @@
-# PictureText · 图文 Web App（端口 8082）
+# 图文 HTML 生成器 (Web App on port 8082)
 
-容器 `19091-picturetext` 的主项目。一个**零第三方依赖**的图文对话应用：把图片和问题一起丢进去，
-由平台唯一的 Claude 入口 `run_claude.js` 处理，返回纯文本结果；同时提供图库管理（上传 / 预览 / 复制链接 / 删除 / 再提问）。
+通过向导模式（单标题 + 多段落图循环）生成图文 HTML，并通过 Claude 多轮迭代改进排版。
 
-- 项目根：`/home/agent/.claude/workspace/project`
-- 服务端口：容器内 `8082`（`0.0.0.0`），宿主机侧 `19091`
-- 运行环境：Node.js v20+（仅内置模块）；`claude` CLI 位于 `/usr/local/bin/claude`
-- 当前版本：`v1.0.0`
-- 会话日志摘要：[`logs/agent_tui.summary.md`](logs/agent_tui.summary.md)
+## 设计要点
 
----
+| 阶段 | 触发 | 生成方式 | 目的 |
+|---|---|---|---|
+| **v1** | 向导点 "完成，生成 v1" | **模板即时生成**（无 AI 调用） | 立即产出可下载的初版 HTML，最快最稳 |
+| **v2+** | viewer 侧栏输入修改意见 | **Claude 改写**（带 60s 兜底超时） | 基于反馈调优，得到更美观版本 |
+| **reset --hard** | 在旧版本上提交反馈 | 删除 `v_(base+1)..v_latest`，再生成 `v_(base+1)` | 用户语义：基于旧版本重新出发 |
 
-## 功能概览
+> v1 不调 AI 是有意设计：向导阶段用户更需要"立刻看到结果"，调 AI 不仅慢且在当前容器内 `claude` CLI 经常 hang 死。AI 改造只在有具体意见时才有意义（v2+）。
 
-- 🖼️ **图文对话**：上传图片 + 提问 → 写入 `tmp.png` → 以 `CLAUDE_IMG` 触发 `run_claude.js` 图文模式 → 返回回答
-- 📎 **三种入图方式**：点击选择 / 拖拽到输入框 / `Ctrl+V` 直接粘贴截图
-- 💬 **纯文本问答**：不传图时走 `GET /ask/claude?q=...`，自动按平台规则识别 URL 编码与 base64
-- 🗂️ **图库管理**：网格列表、按文件名过滤、点击大图预览、复制绝对链接、删除、「用它提问」一键回填
-- 📝 **轻量 Markdown 渲染**：围栏代码块 / 行内代码 / 粗体，全部经 HTML 转义（防 XSS）
-- 🩺 **实时健康灯**：前端每 30s 轮询 `/health`，左栏状态实时反映服务可用性
-- 🔒 **安全**：文件名清洗（拒绝 `..` 与路径穿越）、静态目录前缀白名单、10 MiB 单图上限、`sha256` 指纹
-- 🪶 **零依赖**：后端只用 Node 内置 `http/fs/path/crypto/child_process`，无 `npm install`
+## 端口
 
----
+监听 `0.0.0.0:8082`。容器内固定端口，宿主机通过 18081-19999 范围映射访问。
 
-## 快速开始
+## 启动
 
 ```bash
-cd /home/agent/.claude/workspace/project
-chmod +x user_start.sh
-./user_start.sh                 # 幂等启动：已在运行则直接跳过，并写 logs/start.log
-curl http://localhost:8082/health   # -> OK
+./user_start.sh
 ```
 
-浏览器打开 <http://localhost:8082/> 即可使用。容器重启时由 `start.sh → user_start.sh` 自动拉起。
+启动脚本会：
+1. 清理之前残留的 `node server.js`、`run_claude.js`、`claude --dangerously` 进程
+2. 在后台启动 `node server.js`
+3. 启动日志写入 `logs/start.log`，运行日志写入 `logs/run.log`
 
----
+### 环境变量
 
-## API 端点
+- `MOCK_CLAUDE`：设为 `1` 时跳过真实 Claude 调用（v2+ feedback 路径直接走模板回退）
+  ```bash
+  MOCK_CLAUDE=1 ./user_start.sh
+  ```
+- `FORCE_TEMPLATE`：(已废弃) 早期用于强制 finalize 走模板；现在 v1 默认就模板
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/health` | 健康检查，返回纯文本 `OK` |
-| GET/POST | `/ask/claude?q=<问题>` | 文本问答（平台必备）。`q` 含空白或长度 < 50 → URL 解码；否则 base64 解码 |
-| GET | `/ask/claude?q=<问题>&image=<文件名>` | 用 `uploads/` 中的图片做图文问答 |
-| POST | `/ask/image` | 图文问答。JSON：`{"prompt":"...","image":"data:image/png;base64,...","name":"x.png"}` |
-| POST | `/api/upload?name=<文件名>` | 上传图片（`Content-Type: image/*`，`--data-binary` 原始二进制） |
-| POST | `/api/upload` | 上传图片（JSON：`{"name":"x","mime":"image/png","data":"<base64>"}`，无扩展名时按 mime 自动补） |
-| GET | `/api/images` | 图片列表（`name/size/uploaded_at/url`，按时间倒序） |
-| DELETE | `/api/images/<文件名>` | 删除图片 |
-| GET | `/uploads/<文件名>` | 原图访问 |
-| GET | `/api/info` | 应用元信息（版本、图片数、端点清单） |
-| GET | `/`、`/style.css`、`/app.js` | Web UI 静态资源 |
+## 路径与存储
 
-统一响应约定：成功 `200`；参数错误 `400`；找不到 `404`；方法不允许 `405`；图片过大 `413`；
-Claude 调用失败 `500`（返回 stderr 原文）。JSON 接口失败时返回 `{"ok":false,"error":"..."}`。
+- 项目根目录：`/home/agent/.claude/workspace/project`
+- 项目数据：`data/projects/<projectId>/`
+  - `meta.json`：项目元数据（标题、版本列表、draft、更新时间）
+  - `v1.html`、`v2.html`...：各版本的完整 HTML
+  - `images/<id>.<ext>`：裁剪后上传到服务的图片
+- 日志：`logs/start.log`（启动日志）、`logs/run.log`（运行时日志）、`logs/agent_tui.log`（Claude TUI 会话流水，由系统写入）
 
-### curl 示例
+## API 一览
 
-```bash
-# 健康检查
-curl http://localhost:8082/health
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/` | 向导页面（tab 切换：向导 / 库） |
+| GET | `/library` | 库页面 |
+| GET | `/p/{projectId}` | viewer 页面（默认最新版本） |
+| GET | `/p/{projectId}/v{n}` | viewer 页面（指定版本） |
+| GET | `/static/*` | 静态资源 |
+| GET | `/api/projects` | 列出所有项目 |
+| POST | `/api/projects` | 创建项目（首次进入向导调用） |
+| GET | `/api/projects/{id}` | 获取项目元数据 |
+| PUT | `/api/projects/{id}/draft` | 保存向导草稿（自动调用） |
+| POST | `/api/projects/{id}/finalize` | 完成向导 → 模板生成 v1（**永远不调 AI**） |
+| POST | `/api/projects/{id}/images` | 上传图片（dataUrl 形式） |
+| GET | `/api/projects/{id}/images/{imageId}` | 获取图片二进制 |
+| GET | `/api/projects/{id}/v{n}` | 获取指定版本 HTML（JSON） |
+| GET | `/api/projects/{id}/v{n}/download` | 下载指定版本 HTML |
+| GET | `/api/projects/{id}/v{n}/pdf` | 导出指定版本为 PDF（pdfkit，纯 JS） |
+| GET | `/api/projects/{id}/v{n}/docx` | 导出指定版本为 DOCX（docx 包，纯 JS） |
+| POST | `/api/projects/{id}/feedback` | 基于指定版本提交反馈，AI 生成下一版本 |
 
-# 文本问答（普通字符串）
-curl "http://localhost:8082/ask/claude?q=你好，请介绍一下自己"
+## 工作流
 
-# 文本问答（长内容用 base64，且必须再做 URL 编码，避免 '+' 被解析成空格）
-Q=$(printf '请总结这张图的用途' | base64 -w0)
-curl "http://localhost:8082/ask/claude?q=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$Q")"
+### 向导流程
+1. 顶部卡片填写标题 → 后端创建项目（保存草稿到 `meta.json.draft`）
+2. 点 "+ 添加一段" → 上传图片（文件 / 拖拽 / Ctrl+V 粘贴）
+3. 裁剪：缩放（10%-400%）+ 拖动选区 + 4 角手柄
+4. 配文：上方已显示刚裁剪的图片预览
+5. 点 "完成此段 ✓" 标记本段完成（缩略图显示 ✓）
+6. 继续 "+ 添加一段" 或点 "完成，生成 v1"
+7. **finalize 永远走模板生成** → 几毫秒内返回 v1
+8. 自动跳转到 `/library`，用户在新生成的卡片上选择：
+   - **下载 v1**：直接拿 HTML（无需 AI）
+   - **导出 PDF**：服务端 pdfkit 渲成 A4 海报 PDF（无需 AI）
+   - **导出 DOCX**：服务端 docx 包渲成 Word 文档（无需 AI）
+   - **进入**：跳 viewer → 反馈 → AI 生成 v2/v3
 
-# 上传图片
-curl -X POST --data-binary @cat.png "http://localhost:8082/api/upload?name=cat.png"
+### 迭代流程（v2+）
+- viewer 侧栏：textarea 输入修改意见，点提交
+- 后端走 `run_claude.js` → `claude --dangerously-skip-permissions --continue --print`
+- 60 秒超时：超时则 SIGKILL 子进程，回退到 `applyTemplateFeedback()`（在 v1 HTML 上方加一条黄色备注提示修改意见）
+- reset --hard：基于旧版本提交 → 删除 `v_(base+1)..v_latest.html` → 调 AI 生成 `v_(base+1)`
 
-# 图文问答（上传后再提问）
-curl "http://localhost:8082/ask/claude?q=$(python3 -c "import urllib.parse;print(urllib.parse.quote('描述 这张图'))")&image=cat.png"
+### 下载与导出
+- `GET /api/projects/{id}/v{n}/download` 返回带 `Content-Disposition` 头的 HTML 文件，文件名包含标题与版本号（URL 编码 UTF-8）
+- `GET /api/projects/{id}/v{n}/pdf` → A4 海报 PDF（pdfkit）。标题 + 首段在第 1 页，之后每段独占一页，段内「文字在上、图片在下」不跨页
+- `GET /api/projects/{id}/v{n}/docx` → Word 文档（`docx` 包）。分页规则与 PDF 一致；正文与标题统一指定 `Microsoft YaHei`（`w:eastAsia`）保证中文不乱码
 
-# 图文问答（一步到位）
-B=$(base64 -w0 cat.png)
-curl -X POST -H 'Content-Type: application/json' \
-  -d "{\"prompt\":\"提取图中所有文字\",\"image\":\"data:image/png;base64,$B\",\"name\":\"cat.png\"}" \
-  http://localhost:8082/ask/image
+### PDF / DOCX 导出实现要点
+- 两者都先 `rewriteImagesToDataUri()` 把图片内联，再交给 `parseTemplateSections()` 解析出 `{ text, imageBytes, imageExt }`
+- 中文字体：PDF 用 `fonts/NotoSansCJKsc-{Regular,Bold}.otf`（pdfkit 嵌入）；DOCX 不嵌字体，只写字体名
+- CJK 换行：PDF 走 `wrapCjkText()`（标点感知，避免孤字成行）；DOCX 交给 Word 自己排版
+- 图片尺寸：DOCX 用 `imageDimensions()` 读 PNG IHDR / JPEG SOF 拿原始像素，再按 `fitImageBox()` 等比缩放到 600×640 以内
 
-# 图库
-curl http://localhost:8082/api/images
-curl -X DELETE http://localhost:8082/api/images/cat.png
+## 关键技术点
+
+- **图片裁剪**：纯前端 canvas 计算
+  - `<img>` 上叠加可拖拽 div（4 个圆角手柄）
+  - 缩放：slider 改变 `transform: scale(...)` 同时保持裁剪中心点稳定
+  - 提交时通过 canvas 重新采样原图，生成 jpeg dataUrl 上传
+- **缩略图进度条**：每个段落以卡片形式展示状态（✓ / 当前编辑 / 待编辑），点击跳转
+- **版本管理**：文件型 git-like 结构，文件名 `v{n}.html`，reset 通过删文件实现
+- **v1 模板生成**：`renderTemplateHtml(title, items)` 输出完整 HTML（内嵌 CSS、响应式、现代风格），不依赖外部 AI
+- **Claude 调用**：`run_claude.js` 通过 `CLAUDE_MSG`（base64）+ 可选 `CLAUDE_IMG`（base64）传递，统一记录到 `logs/agent_tui.log`
+- **沙箱 viewer**：`<iframe sandbox="allow-same-origin">` 渲染用户生成的 HTML，避免影响父页面
+- **超时保护**：`CLAUDE_TIMEOUT_MS = 60s`，超时 SIGKILL 子进程 + 进程组，确保 wizard 端不会无限等待
+
+## 项目目录结构
+
+```
+/home/agent/.claude/workspace/project/
+├── server.js                # 主服务：HTTP 路由 + Claude 编排 + 模板生成 + PDF/DOCX 导出
+├── run_claude.js            # 调用 claude CLI 的脚本（系统注入）
+├── user_start.sh            # 启动脚本（端口 8082，日志写 logs/start.log）
+├── start.sh                 # 容器系统脚本
+├── package.json             # 依赖：pdfkit / docx / pdf-parse / fflate
+├── fonts/                   # Noto Sans CJK（PDF 中文字体，随仓库携带）
+│   ├── NotoSansCJKsc-Regular.otf
+│   └── NotoSansCJKsc-Bold.otf
+├── tests/
+│   ├── pdf-e2e.js           # PDF 导出端到端校验（npm run test:pdf）
+│   └── docx-e2e.js          # DOCX 导出端到端校验（npm run test:docx）
+├── generate-a4-landscape.cjs # 独立脚本：离线生成 A4 横版海报 PDF 样例
+├── static/
+│   ├── style.css            # 向导 + 库 tab 样式
+│   ├── app.js               # 向导 + 库 tab 前端逻辑
+│   ├── viewer.css           # viewer 页面样式
+│   └── viewer.js            # viewer 页面逻辑
+├── data/                    # 持久化（运行时生成，不入 git）
+│   └── projects/<id>/
+│       ├── meta.json
+│       ├── v1.html, v2.html, ...
+│       └── images/
+├── logs/                    # 日志（不入 git）
+│   ├── start.log            # 启动日志
+│   ├── run.log              # 服务运行日志
+│   └── agent_tui.log        # Claude TUI 会话流水
+├── README.md                # 本文件
+├── SKILL.md                 # 给 Agent 的能力说明
+├── AGENTS.md                # 工作区行为准则
+├── SOUL.md / USER.md / IDENTITY.md / TOOLS.md / HEARTBEAT.md / BOOTSTRAP.md
+├── systemreadme.md          # 容器平台约定（路径、日志、端口、API 规范）
+├── commit.txt               # commit 流水（每次会话追加）
+├── .gitignore               # 排除 logs/、data/、node_modules/ 等
+└── test_sync.txt            # 心跳/同步标记
 ```
 
----
+## 已知边界
+
+- 单机进程内存储，不支持多用户/分布式
+- Claude 调用最长 60 秒超时（v2+ 路径），超时回退模板
+- reset --hard 直接删除磁盘文件，**不可恢复**
+- 容器内 `claude` CLI 经常 hang 死，所以 v1 设计为永远不调 AI；v2+ 也已有 60s 兜底
+- DOCX 不支持 WebP；遇到不支持的图片格式会退化成一行灰色占位文字
+- DOCX 只写字体名不嵌字体，最终观感取决于打开文档的机器是否装了 `Microsoft YaHei`
 
 ## 测试
 
 ```bash
-cd /home/agent/.claude/workspace/project
-bash test_api.sh      # 端到端接口测试（31 项，PASS=31 FAIL=0）
-node test_ui.js       # 前端静态一致性测试（11 项，PASS=11 FAIL=0）
-node tests/smoke.js   # 纯 Node 冒烟测试（21 项，21 通过 / 0 失败，无需 python3）
+# 离线测试（不调真实 Claude；v2+ 反馈也走模板回退）
+MOCK_CLAUDE=1 ./user_start.sh
+
+# 真实模式（v1 仍模板；v2+ 走 AI 路径）
+./user_start.sh
+
+# 健康检查
+curl http://localhost:8082/health
+# → OK
+
+# PDF 导出端到端校验（对库里每个项目的最新版本校验 9 项）
+npm run test:pdf
+
+# DOCX 导出端到端校验（校验 MIME/魔数/OOXML 结构/图片内嵌/字体，共 16 项）
+npm run test:docx
+
+# 手动下载
+curl -o v1.pdf  http://localhost:8082/api/projects/<PID>/v1/pdf
+curl -o v1.docx http://localhost:8082/api/projects/<PID>/v1/docx
 ```
-
-`test_api.sh` 会在测试期间用 stub 临时替换 `run_claude.js`（隔离真实 Claude 调用，避免嵌套会话），
-并用 `trap EXIT` 保证任何情况下恢复原文件。
-
-> 容器内没有浏览器/Playwright，因此 UI 采用静态交叉校验（id 引用、接口实现、资源存在性、必备端点与端口）替代点击测试。
-
----
-
-## 目录结构
-
-```
-project/
-├── server.js                后端（8082，零依赖）
-├── public/
-│   ├── index.html           三栏布局：左导航 + 对话/图库主区
-│   ├── style.css            深色主题、响应式
-│   └── app.js               对话渲染、图片入图、图库交互
-├── user_start.sh            启动脚本（幂等；日志 → logs/start.log）
-├── test_api.sh              接口测试（31 项）
-├── test_ui.js               前端静态测试（11 项）
-├── tests/smoke.js           纯 Node 冒烟测试（21 项）
-├── README.md / SKILL.md     文档
-├── logs/                    agent_tui.log · start.log · run.log · commit.txt
-├── uploads/                 运行时图库（git 忽略）
-├── tmp.png                  图文模式中转图（git 忽略）
-└── tools/                   平台工具集（email / github / hub / obs / obs-video）
-```
-
----
-
-## 部署与运维
-
-- **启动**：`./user_start.sh`（幂等：`/health` 为 `OK` 时直接跳过，不会杀掉正在服务的进程）
-- **日志**：
-  - `logs/start.log` —— 启动脚本日志
-  - `logs/run.log` —— 应用运行日志
-  - `logs/agent_tui.log` —— Claude 会话日志（由 `run_claude.js` 写入）
-- **停止**：`kill "$(cat logs/server.pid)"`（服务收到 SIGTERM 会优雅退出）
-- **Git**：每次对话后 `git add -A && git commit`，并把短 hash + 标题追加到 `logs/commit.txt`
-
----
-
-## 设计约束（来自 `systemreadme.md`）
-
-1. 所有 Claude 调用**必须**经 `run_claude.js`，不得直接调 `claude` CLI——否则问答不进 `agent_tui.log`。
-2. 必须提供 `/ask/claude` 与 `/health`，内部端口固定 `8082`。
-3. 项目根必须是 git 仓库，且每次对话后提交。
-4. 图片走 `project/tmp.png` + `CLAUDE_IMG`，不使用 base64 内联给模型。
-5. 注册到 19081 Hub 时需自报真实接口（含 `/ask/claude`）。
-
----
-
-## 版本历史
-
-| 版本 | 变更 |
-|------|------|
-| v1.0.0 | 首次交付：图文对话 + 图库 + `/ask/image` + 零依赖后端 + 幂等启动脚本 + 42 项自动化测试 |

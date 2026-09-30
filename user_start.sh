@@ -1,11 +1,13 @@
 #!/bin/bash
-# ===== PictureText 图文 Web App 启动脚本 =====
+# ===== 图文 HTML 生成器 · 启动脚本（端口 8082）=====
 # 平台约定（systemreadme.md / skill hermit-paths、hermit-logging）：
 #   - 由容器 start.sh 自动执行（存在且非空）
-#   - 启动日志 → logs/start.log
-#   - Web App 运行日志 → logs/run.log
+#   - 启动日志 → logs/start.log；应用日志 → logs/run.log
 #   - 端口固定 8082
-# 幂等：若 8082 已健康，直接跳过，避免重复拉起把正在服务的进程杀掉。
+#
+# ⚠️ 安全约束：**不要** kill `run_claude.js` / `claude` 进程 ——
+#    容器内 agent 会话本身就挂在 `run_claude.js` 上，误杀会导致面板失联。
+#    本脚本只清理本项目的 `node server.js`。
 set -u
 
 PROJECT_DIR="/home/agent/.claude/workspace/project"
@@ -16,21 +18,20 @@ PID_FILE="${LOG_DIR}/server.pid"
 PORT=8082
 
 cd "${PROJECT_DIR}" || exit 1
-mkdir -p "${LOG_DIR}" uploads
+mkdir -p "${LOG_DIR}" data/projects
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${START_LOG}"; }
-
 health() { curl -sf --max-time 2 "http://127.0.0.1:${PORT}/health" 2>/dev/null || true; }
 
-log "===== PictureText 启动检查 (port ${PORT}) ====="
+log "===== 图文 HTML 生成器 启动检查 (port ${PORT}, MOCK_CLAUDE=${MOCK_CLAUDE:-0}) ====="
 
-# --- 0. 幂等检查：已在运行则直接返回 ---
+# --- 0. 幂等：已在运行则直接返回（避免把正在服务的进程杀掉）---
 if [ "$(health)" = "OK" ]; then
     log "服务已在运行（GET /health -> OK），跳过启动。"
     exit 0
 fi
 
-# --- 1. 清理残留进程，避免端口冲突 ---
+# --- 1. 清理残留的本项目 server.js ---
 if [ -f "${PID_FILE}" ]; then
     OLD_PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
     if [ -n "${OLD_PID}" ] && kill -0 "${OLD_PID}" 2>/dev/null; then
@@ -43,8 +44,9 @@ if [ -f "${PID_FILE}" ]; then
 fi
 pkill -f "node ${PROJECT_DIR}/server.js" 2>/dev/null && sleep 1 || true
 
-# --- 2. 后台拉起 server.js（nohup + disown 持久化；PID 用 $! 精确记录）---
-log "运行日志: ${RUN_LOG}"
+# --- 2. 后台拉起 server.js ---
+export MOCK_CLAUDE="${MOCK_CLAUDE:-0}"
+log "运行日志: ${RUN_LOG}（MOCK_CLAUDE=${MOCK_CLAUDE}）"
 nohup node "${PROJECT_DIR}/server.js" >> "${RUN_LOG}" 2>&1 &
 NODE_PID=$!
 disown "${NODE_PID}" 2>/dev/null || true
