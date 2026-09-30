@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "test:pdf": "node tests/pdf-e2e.js"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.1"
+  }
+}
