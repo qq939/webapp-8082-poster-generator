@@ -22,3 +22,4 @@ e36e328a3b5c30b44399c4e83f50e54a4a5d647b feat: 图文HTML生成器 - 向导模�
 e36e328 feat: 图文HTML生成器 - 向导模式 + 库管理 + 版本迭代 + 下载
 ac860f5 chore: append commit.txt with new commit id
 d1913f3 feat: 部署 poster-generator 仓库 + 新增「导出 DOCX」
+a9a8ffa fix(wizard): 去掉缩略图重复对勾，当前段增加删除按钮
