@@ -197,6 +197,12 @@ function renderWizard(root, params = {}) {
     finishBtn.onclick = () => finalize();
 
     thumbStrip.addEventListener('click', e => {
+        const del = e.target.closest('.thumb-del');
+        if (del) {
+            e.stopPropagation();
+            deleteSegment(parseInt(del.dataset.del, 10));
+            return;
+        }
         const t = e.target.closest('.thumb-item');
         if (!t) return;
         // Avoid switching segment immediately after a drag completes — the
@@ -349,11 +355,12 @@ function renderWizard(root, params = {}) {
             if (isCurrent) cls += ' current';
             if (seg.status === 'done') cls += ' done';
             else if (isCurrent) cls += ' active';
-            const statusLabel = seg.status === 'done' ? '✓' : (i + 1);
+            const statusLabel = i + 1;
             const textSnippet = (seg.text || '').slice(0, 14) || (seg.status === 'image' ? '待上传图片' : seg.status === 'text' ? '待配文' : '');
             return `
             <div class="${cls}" data-idx="${i}" draggable="true" title="按住拖动可调整顺序">
                 <div class="thumb-num">${statusLabel}</div>
+                ${isCurrent ? `<button type="button" class="thumb-del" data-del="${i}" draggable="false" title="删除本段" aria-label="删除本段">×</button>` : ''}
                 ${thumb ? `<img class="thumb-img" src="${thumb}">` : `<div class="thumb-placeholder">＋</div>`}
                 <div class="thumb-text">${escapeHtml(textSnippet || (seg.status === 'done' ? '已完成' : '编辑中'))}</div>
             </div>`;
@@ -367,6 +374,21 @@ function renderWizard(root, params = {}) {
         state.currentStep = (seg.status === 'done' || seg.status === 'text') ? 'text' : 'image';
         renderEditor();
         renderThumbs();
+    }
+
+    function deleteSegment(idx) {
+        if (idx < 0 || idx >= state.segments.length) return;
+        if (!confirm(`删除第 ${idx + 1} 段（含图片和文字）？`)) return;
+        state.segments.splice(idx, 1);
+        if (state.currentIndex > idx) {
+            state.currentIndex -= 1;
+        } else if (state.currentIndex === idx) {
+            state.currentIndex = Math.min(idx, state.segments.length - 1);
+        }
+        if (state.segments.length === 0) state.currentIndex = 0;
+        renderEditor();
+        renderThumbs();
+        autosave();
     }
 
     function goPrevStep() {
