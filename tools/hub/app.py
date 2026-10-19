@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Hermit Tools Hub Flask app（19081 对接文档首页 + /api/tools 接口 + /p/<name> 代理）。
+"""Harness Tools Hub Flask app（19081 对接文档首页 + /api/tools 接口 + /p/<name> 代理）。
 
 独立运行于 19081-hub 容器（宿主机 19081），提供：
   - 首页「工具知识库」：底部工具导航 + iframe 预览 + Docs 查看器
@@ -158,7 +158,7 @@ iframe.active { display: block; }
   <iframe id="frame" title="tool ui" allow="clipboard-read; clipboard-write"></iframe>
   <div class="welcome" id="welcome">
     <h1>Tools 知识库</h1>
-    <p>选择一个工具查看其功能和文档。端口范围 <code>19081-19999</code> 为 Hermit 工具类（MCP 服务器）保留端口。</p>
+    <p>选择一个工具查看其功能和文档。端口范围 <code>19081-19999</code> 为 Harness 工具类（MCP 服务器）保留端口。</p>
     <p>当前注册的工具显示在底部标签栏中，点击加载工具的 Web 界面，点击 <code>Docs</code> 按钮查看工具文档。</p>
   </div>
   <div class="doc-viewer" id="docViewer"></div>
@@ -294,7 +294,7 @@ setInterval(load, 10000);
 
 def create_tools_hub_app(tools_hub_port=TOOLS_HUB_PORT_DEFAULT):
     """19081 工具 Hub（对接文档）：首页展示工具知识库、公共接口文档、示例工具文档，并提供 /api/tools 与 /p/<name> 代理。"""
-    hub = Flask("hermit_tools_hub")
+    hub = Flask("harness_tools_hub")
     hub.config["JSON_AS_ASCII"] = False
 
     @hub.get("/api/tools")

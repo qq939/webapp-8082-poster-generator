@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Hermit Tools Hub 注册表（纯标准库，无 flask/docker 依赖，便于单测）。
+"""Harness Tools Hub 注册表（纯标准库，无 flask/docker 依赖，便于单测）。
 
 职责：
   - 维护已注册工具的持久化注册表（JSON 文件）

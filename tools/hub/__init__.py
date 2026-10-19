@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Hermit Tools Hub 源码包（tools/hub）。
+"""Harness Tools Hub 源码包（tools/hub）。
 
 - registry: 工具注册表（纯标准库，文件级持久化；容器内为 /config/tools_registry.json，
   宿主机为 config/registry/tools_registry.json —— control 面板与 Hub 卡片共用这一份，
